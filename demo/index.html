@@ -136,6 +136,11 @@ a{color:inherit}
 .seg.big button{font-size:16px;padding:14px 26px}
 .navseg{transition:opacity .35s,transform .35s}
 .nav:not(.showseg) .navseg{opacity:0;transform:translateY(-8px);pointer-events:none}
+#sysload{position:fixed;inset:0;z-index:24;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#8d8f98;font:600 12px/1 Montserrat,sans-serif;letter-spacing:.16em;text-transform:uppercase;opacity:0;visibility:hidden;transition:opacity .3s,visibility .3s}
+#sysload.on{opacity:1;visibility:visible}
+#sysload i{width:28px;height:28px;border-radius:50%;border:2px solid #2a2c33;border-top-color:var(--y);animation:sysspin 1s linear infinite}
+@keyframes sysspin{to{transform:rotate(360deg)}}
+#systrack{position:relative}
 #curtain{position:fixed;inset:0;z-index:60;background:var(--bg);opacity:0;pointer-events:none;transition:opacity .28s ease}
 #curtain.on{opacity:1}
 
@@ -201,6 +206,7 @@ h2{font-size:clamp(36px,4.4vw,62px);line-height:1.02;margin-bottom:22px}
 .cta h2{max-width:14ch;margin-bottom:26px}
 .cta p{color:#c4c4cc;margin:0 0 30px;max-width:30rem}
 .cta .btn{font-size:17px;padding:17px 30px}
+.cta .mail{margin:14px 0 0;color:#8d8f98;font-size:15px;user-select:all}
 footer{position:relative;z-index:20;text-align:center;color:#55575f;font-size:13px;padding:0 20px 28px;margin-top:-60px}
 
 @media (max-width:820px){
@@ -237,6 +243,7 @@ footer{position:relative;z-index:20;text-align:center;color:#55575f;font-size:13
   .reveal>*{transition:none}
 }
 </style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
 </head>
 <body>
 <div class="nav">
@@ -258,6 +265,7 @@ footer{position:relative;z-index:20;text-align:center;color:#55575f;font-size:13
   <div id="framewrap"><div id="frame" data-type="phone"><div id="fscreen"></div><div id="fglass"></div><div id="fcam"></div><div id="fbase"></div></div></div>
 </div>
 <div id="curtain"></div>
+<div id="sysload"><i></i><span>Loading the system walkthrough</span></div>
 
 <main>
   <section class="hero" data-track="device" data-role="hero" data-side="center" data-screens="boot">
@@ -415,12 +423,15 @@ footer{position:relative;z-index:20;text-align:center;color:#55575f;font-size:13
     </div>
   </section>
 
+  <div id="systrack" data-track="system" aria-label="Tapstr system walkthrough"></div>
+
   <section class="cta" id="contact" data-role="cta" data-side="center" data-screens="brand">
     <div class="pin">
       <div class="bottom reveal">
         <p class="eyebrow">Coming to UK home bars</p>
         <h2>Want one on <span class="hl">your tap?</span></h2>
-        <a class="btn" href="mailto:">Get in touch</a>
+        <a class="btn" href="mailto:cheers@tapstr.io">Get in touch</a>
+        <p class="mail">cheers@tapstr.io</p>
       </div>
     </div>
   </section>
@@ -725,6 +736,7 @@ function layout(force) {
   sections.forEach(o => {
     o.sec.style.height = (o.role ? VH * 1.35 : o.wsum * DWELL + VH) + 'px';
   });
+  sysTrack.style.height = (window.__sysLen || 26.2) * VH + 'px';
   sections.forEach(o => { o.top = o.sec.offsetTop; o.h = o.sec.offsetHeight; });
   // hero: sit the device in the gap between the headline and the selector, only shrinking it if it won't fit
   const hs = sections[0].sec, ht = hs.querySelector('.top'), hb = hs.querySelector('.sub');
@@ -749,6 +761,18 @@ const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
+/* ======================= System track (3D walkthrough in system.js, loaded on demand) ======================= */
+const sysTrack = document.getElementById('systrack'), sysLoad = document.getElementById('sysload');
+const sysTop = () => sysTrack.getBoundingClientRect().top + scrollY;
+let sysReq = false;
+function loadSys() {
+  if (sysReq) return; sysReq = true;
+  const sc = document.createElement('script'); sc.type = 'module'; sc.src = 'system.js';
+  sc.onerror = () => { sysLoad.querySelector('span').textContent = "Couldn't load the walkthrough. Try refreshing."; };
+  document.body.appendChild(sc);
+}
+window.__siteRelayout = () => layout(true);
+
 /* ======================= Device / App / System selector ======================= */
 const segs = [...document.querySelectorAll('[data-seg]')], nav = document.querySelector('.nav'), curtain = document.getElementById('curtain');
 let track = 'device';
@@ -764,7 +788,8 @@ function jump(go) {
   track = go; paintSeg(); jumping = true;
   const target = go === 'device' ? sections[1].top
                : go === 'app' ? sections.find(o => o.track === 'app').top
-               : document.documentElement.scrollHeight;          // System: bottom of the page for now
+               : sysTop();
+  if (go === 'system') loadSys();
   curtain.classList.add('on');
   setTimeout(() => {
     window.scrollTo(0, target); track = go; paintSeg();
@@ -841,7 +866,11 @@ function frame() {
 
   // keep the selector in step with where you are (the closing section leaves it alone)
   const here = nxt && t >= .5 ? nxt : o;
-  if (!jumping && here.track && here.track !== track) { track = here.track; paintSeg(); }
+  const sT = sysTop(), sH = sysTrack.offsetHeight, inSys = y >= sT - VH * .5 && y < sT + sH - VH * .7;
+  const hereTrack = inSys ? 'system' : here.track;
+  if (!jumping && hereTrack && hereTrack !== track) { track = hereTrack; paintSeg(); }
+  if (!sysReq && y > sections.find(s => s.track === 'app').top - VH) loadSys();
+  sysLoad.classList.toggle('on', !window.__sysReady && y >= sT - VH * .3 && y < sT + sH - VH * .6);
   nav.classList.toggle('showseg', y > VH * .2);
 
   tX = lerp(tX, ptrX, .08); tY = lerp(tY, ptrY, .08);
